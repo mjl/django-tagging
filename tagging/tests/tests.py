@@ -381,6 +381,35 @@ class TestModelTagField(TestCase):
         self.failIf('two' in f1again.tags)
         self.failUnless('new' in f1again.tags)
 
+    def test_lazy_loading_of_tags(self):
+        from django.db import connection
+        from django.conf import settings as django_settings
+        old_queries = connection.queries
+        old_debug = django_settings.DEBUG
+
+        tags = ['one', 'two', 'three']
+        f1 = FormTest.objects.create(tags=u' '.join(tags))
+        connection.queries = []
+        django_settings.DEBUG = True
+        f1again = FormTest.objects.get(pk=f1.pk)
+        self.failUnless(len(connection.queries) == 1) # tags shouldn't be updated, yet
+        self.failIf([tag for tag in tags if tag not in f1again.tags]) # lazyload tags and check if they are ok
+        self.failUnless(len(connection.queries) == 2)
+        unicode(f1again.tags) # access tags again
+        self.failUnless(len(connection.queries) == 2) # test memoization
+
+        connection.queries = old_queries
+        django_settings.DEBUG = old_debug
+
+    def test_pickle_model_with_tagfield(self):
+        import pickle
+        tags = ['some', 'thing']
+        f1 = FormTest.objects.create(tags=u' '.join(tags))
+        f2 = FormTest.objects.get(pk=f1.pk)
+        s = pickle.dumps(f2)
+        f3 = pickle.loads(s)
+        self.failIf([tag for tag in tags if tag not in f3.tags])
+
     def test_creation_without_specifying_tags(self):
         f1 = FormTest()
         self.assertEquals(f1.tags, '')

@@ -30,7 +30,7 @@ class TagField(CharField):
         # Save tags back to the database post-save
         signals.post_save.connect(self._save, cls, True)
 
-        # Update tags from Tag objects post-init
+        # Clear cache post-init so we don't get out-of-date data
         signals.post_init.connect(self._update, cls, True)
 
     def __get__(self, instance, owner=None):
@@ -56,7 +56,10 @@ class TagField(CharField):
         if instance is None:
             return edit_string_for_tags(Tag.objects.usage_for_model(owner))
 
-        return self._get_instance_tag_cache(instance)
+        cached = self._get_instance_tag_cache(instance)
+        if cached is None:
+            cached = self._update_instance_tag_cache(instance)
+        return cached
 
     def __set__(self, instance, value):
         """
@@ -77,10 +80,11 @@ class TagField(CharField):
 
     def _update(self, **kwargs): #signal, sender, instance):
         """
-        Update tag cache from TaggedItem objects.
+        Clear tag cache after load from DB so we don't use out-of-date data.
         """
         instance = kwargs['instance']
-        self._update_instance_tag_cache(instance)
+        if instance.pk:
+            self._set_instance_tag_cache(instance, None)
 
     def __delete__(self, instance):
         """
@@ -105,9 +109,12 @@ class TagField(CharField):
         Helper: update an instance's tag cache from actual Tags.
         """
         # for an unsaved object, leave the default value alone
-        if instance.pk is not None:
+        if instance.pk is None:
+            return self._get_instance_tag_cache()
+        else: 
             tags = edit_string_for_tags(Tag.objects.get_for_object(instance))
             self._set_instance_tag_cache(instance, tags)
+            return tags
 
     def get_internal_type(self):
         return 'CharField'
